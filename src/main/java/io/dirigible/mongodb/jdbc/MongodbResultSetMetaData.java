@@ -18,19 +18,23 @@ package io.dirigible.mongodb.jdbc;
 import java.sql.ResultSetMetaData;
 import java.sql.SQLException;
 import java.sql.Types;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.SortedMap;
 import java.util.TreeMap;
 
+import lombok.extern.slf4j.Slf4j;
 import org.bson.BsonType;
 import org.bson.codecs.BsonTypeClassMap;
 
+@Slf4j
 public class MongodbResultSetMetaData implements ResultSetMetaData {
 
-	private int columnCount;
-	private SortedMap<String, BsonType> keyMap = new TreeMap<String, BsonType>();
-	private String collectionName;
+	private SortedMap<String, BsonType> keyMap = new TreeMap<>();
+	private List<String> columnsOrder = new ArrayList<>();
+	private final String collectionName;
 	private BsonTypeClassMap bsonTojavaTypeMap = new BsonTypeClassMap();
 
 	public MongodbResultSetMetaData(String collectionName){
@@ -51,17 +55,17 @@ public class MongodbResultSetMetaData implements ResultSetMetaData {
 		 return iface != null && iface.isAssignableFrom(getClass());
 	}
 
-	public Map<String, BsonType> keys() {
-		return this.keyMap ;
+	public void addColumn(String columnName, BsonType type) {
+		if(!keyMap.containsKey(columnName)) {
+			this.keyMap.put(columnName, type);
+			this.columnsOrder.add(columnName);
+			log.debug("Register column [" + this.columnsOrder.size() + "] " + columnName + " with type: " + type.toString());
+		}
 	}
 	
 	@Override
 	public int getColumnCount() throws SQLException {
-		return this.columnCount;
-	}
-	
-	void setColumnCount(int count){
-		this.columnCount = count;
+		return this.columnsOrder.size();
 	}
 
 	@Override
@@ -102,15 +106,15 @@ public class MongodbResultSetMetaData implements ResultSetMetaData {
 	@SuppressWarnings("unchecked")
 	@Override
 	public String getColumnLabel(int column) throws SQLException {
-		Entry<String, BsonType> entry = (Entry<String, BsonType>) this.keyMap.entrySet().toArray()[column-1];
-		return entry.getKey();
+		log.debug("Read column: " + column);
+		return columnsOrder.get(column - 1);
 	}
 
 	@SuppressWarnings("unchecked")
 	@Override
 	public String getColumnName(int column) throws SQLException {
-		Entry<String, BsonType> entry = (Entry<String, BsonType>) this.keyMap.entrySet().toArray()[column-1];
-		return entry.getKey();
+		log.debug("Read column: " + column);
+		return columnsOrder.get(column - 1);
 	}
 
 	@Override
@@ -140,17 +144,13 @@ public class MongodbResultSetMetaData implements ResultSetMetaData {
 
 	@Override
 	public int getColumnType(int column) throws SQLException {
-		Entry<String, BsonType> entry = (Entry<String, BsonType>) this.keyMap.entrySet().toArray()[column-1];
-		//return entries[column-1].getValue().getValue();//TODO: this returns the BSON type ordinal. What we need is a mapping to SQL types ordinals.
-		return this.getSqlType(entry.getValue());
+		return this.getSqlType(this.keyMap.get(columnsOrder.get(column - 1)));
 	}
 
 	@SuppressWarnings("unchecked")
 	@Override
 	public String getColumnTypeName(int column) throws SQLException {
-		Entry<String, BsonType> entry = (Entry<String, BsonType>) this.keyMap.entrySet().toArray()[column-1];
-		//return entries[column-1].getValue().toString();// return MongoDB specific datatype name.
-		return this.getSqlTypeName(entry.getValue());
+		return this.getSqlTypeName(this.keyMap.get(columnsOrder.get(column - 1)));
 	}
 
 	@Override
@@ -170,13 +170,12 @@ public class MongodbResultSetMetaData implements ResultSetMetaData {
 
 	@Override
 	public String getColumnClassName(int column) throws SQLException {
-		Entry<String, BsonType> entry = (Entry<String, BsonType>) this.keyMap.entrySet().toArray()[column-1];
-		return this.bsonTojavaTypeMap.get(entry.getValue()).getCanonicalName();
+		return this.bsonTojavaTypeMap.get(this.keyMap.get(columnsOrder.get(column - 1))).getCanonicalName();
 	}
 	
 	int getSqlType(BsonType bsonType){
 		switch(bsonType){
-			case OBJECT_ID: { return Types.VARCHAR;}
+			case OBJECT_ID: { return Types.OTHER;}
 			case ARRAY: { return Types.ARRAY;}
 			case BINARY: { return Types.BINARY; }
 			case BOOLEAN: { return Types.BOOLEAN;}
@@ -184,7 +183,7 @@ public class MongodbResultSetMetaData implements ResultSetMetaData {
 			case DOCUMENT: { return Types.OTHER; }
 			case DOUBLE: { return Types.DOUBLE; }
 			case INT32: {return Types.INTEGER; }
-			case INT64: {return Types.INTEGER; }
+			case INT64: {return Types.BIGINT; }
 			case STRING: { return Types.VARCHAR; }
 			case TIMESTAMP: { return Types.TIMESTAMP;}
 			default: break;
@@ -201,10 +200,10 @@ public class MongodbResultSetMetaData implements ResultSetMetaData {
 			case DOCUMENT: { return "OTHER"; }
 			case DOUBLE: { return "DOUBLE"; }
 			case INT32: {return "INTEGER"; }
-			case INT64: {return "INTEGER"; }
+			case INT64: {return "BIGINT"; }
 			case STRING: { return "VARCHAR"; }
 			case TIMESTAMP: { return "TIMESTAMP";}
-			case OBJECT_ID: { return "STRING";}
+			case OBJECT_ID: { return "OTHER";}
 			default: break;
 		}
 		return null;

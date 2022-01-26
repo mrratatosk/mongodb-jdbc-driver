@@ -15,6 +15,8 @@
  */
 package io.dirigible.mongodb.jdbc;
 
+import com.mongodb.client.AggregateIterable;
+import com.mongodb.client.MongoIterable;
 import java.sql.Connection;
 import java.sql.ResultSet;
 import java.sql.SQLException;
@@ -22,11 +24,15 @@ import java.sql.SQLFeatureNotSupportedException;
 import java.sql.SQLWarning;
 import java.sql.Statement;
 
+import java.util.List;
+import java.util.stream.Collectors;
 import org.bson.BsonDocument;
+import org.bson.BsonValue;
 import org.bson.Document;
 
 import com.mongodb.client.FindIterable;
 import com.mongodb.client.MongoDatabase;
+import org.bson.conversions.Bson;
 
 public class MongodbStatement implements Statement {
 	
@@ -57,33 +63,54 @@ public class MongodbStatement implements Statement {
 	@Override
 	public ResultSet executeQuery(String sql) throws SQLException {
 		MongoDatabase db = this.conn.getMongoDb();
-		BsonDocument filterDocument = null;
+		BsonDocument query = null;
 		if(sql==null || sql.length()<1)//that is a call to find() in terms of mongodb queries
-			filterDocument = new BsonDocument();
+			query = new BsonDocument();
 		else
-			filterDocument = BsonDocument.parse(sql);	
-		/*
-		 *  TODO: With 3.2 use https://docs.mongodb.org/manual/reference/command/find/#dbcmd.find instead
-		 * 	Document response = this.conn.getMongoDb().runCommand(filterDocument); //MongoDB 3.2 only. Won't work on 3.0
-		 */
-		String collectionName = filterDocument.containsKey("find")? filterDocument.getString("find").getValue():null;
-		if(collectionName==null)
+			query = BsonDocument.parse(sql);
+
+		if((query.containsKey("filter") && query.containsKey("aggreg")) || (!query.containsKey("filter") && !query.containsKey("aggreg"))) {
+			throw new IllegalArgumentException("Specify either a find or an aggreg field");
+		}
+
+		MongoIterable<Document> searchHits = null;
+		String collectionName = query.containsKey("find") ? query.getString("find").getValue() : null;
+		if (collectionName == null) {
 			collectionName = this.conn.getCollectionName();//fallback if any
-		if(collectionName==null)
+		}
+
+		if (collectionName == null) {
 			throw new IllegalArgumentException("Specifying a collection is mandatory for query operations");
-		BsonDocument filter = filterDocument.containsKey("filter")? filterDocument.getDocument("filter"): null;
-		
-		FindIterable<Document> searchHits = null;
-		if(filter==null)
-			searchHits = db.getCollection(collectionName).find();
-		else 
-			searchHits = db.getCollection(collectionName).find(filter);
-		if(filterDocument.containsKey("batchSize"))
-			searchHits.batchSize(filterDocument.getInt32("batchSize").getValue());
-		if(filterDocument.containsKey("limit"))
-			searchHits.limit(filterDocument.getInt32("limit").getValue());
-		if(filterDocument.containsKey("sort"))
-			searchHits.sort(filterDocument.getDocument("sort"));
+		}
+
+		if(query.containsKey("filter")) {
+			BsonDocument filter = query.containsKey("filter") ? query.getDocument("filter") : null;
+
+			if (filter == null) {
+				searchHits = db.getCollection(collectionName).find();
+			} else {
+				searchHits = db.getCollection(collectionName).find(filter);
+			}
+			if (query.containsKey("batchSize")) {
+				searchHits.batchSize(query.getInt32("batchSize").getValue());
+			}
+
+			if (query.containsKey("limit")) {
+				((FindIterable<Document>) searchHits).limit(query.getInt32("limit").getValue());
+			}
+
+			if (query.containsKey("sort")) {
+				((FindIterable<Document>) searchHits).sort(query.getDocument("sort"));
+			}
+		} else if(query.containsKey("aggreg")) {
+			List<Bson> aggreg = query.containsKey("aggreg") ? query.getArray("aggreg").stream().map(BsonValue::asDocument).collect(Collectors.toList()) : null;
+
+			searchHits = db.getCollection(collectionName).aggregate(aggreg);
+
+			if (query.containsKey("batchSize")) {
+				searchHits.batchSize(query.getInt32("batchSize").getValue());
+			}
+		}
 		return new MongodbResultSet(this, searchHits);
 	}
 
