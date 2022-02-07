@@ -105,7 +105,7 @@ public class MongodbStatement implements Statement {
 		} else if(query.containsKey("aggreg")) {
 			List<Bson> aggreg = query.containsKey("aggreg") ? query.getArray("aggreg").stream().map(BsonValue::asDocument).collect(Collectors.toList()) : null;
 
-			searchHits = db.getCollection(collectionName).aggregate(aggreg);
+			searchHits = db.getCollection(collectionName).aggregate(aggreg).allowDiskUse(true);
 
 			if (query.containsKey("batchSize")) {
 				searchHits.batchSize(query.getInt32("batchSize").getValue());
