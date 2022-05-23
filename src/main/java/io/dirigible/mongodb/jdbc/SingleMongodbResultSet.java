@@ -10,11 +10,6 @@
  */
 package io.dirigible.mongodb.jdbc;
 
-import com.mongodb.Block;
-import com.mongodb.MongoClient;
-import com.mongodb.client.FindIterable;
-import com.mongodb.client.MongoCursor;
-import com.mongodb.client.MongoIterable;
 import java.io.InputStream;
 import java.io.Reader;
 import java.math.BigDecimal;
@@ -23,7 +18,6 @@ import java.net.URL;
 import java.sql.Array;
 import java.sql.Blob;
 import java.sql.Clob;
-import java.sql.Connection;
 import java.sql.Date;
 import java.sql.NClob;
 import java.sql.Ref;
@@ -39,53 +33,29 @@ import java.sql.Time;
 import java.sql.Timestamp;
 import java.text.DecimalFormat;
 import java.text.ParsePosition;
-import java.util.Arrays;
 import java.util.Base64;
 import java.util.Calendar;
-import java.util.Collections;
-import java.util.List;
 import java.util.Map;
-import java.util.Map.Entry;
-import java.util.Set;
-import javax.sql.rowset.serial.SerialArray;
 import lombok.extern.slf4j.Slf4j;
 import org.bson.BsonType;
-import org.bson.BsonValue;
 import org.bson.Document;
 import org.bson.json.JsonWriterSettings;
 
 @Slf4j
-public class MongodbResultSet implements ResultSet {
+public class SingleMongodbResultSet implements ResultSet {
 
   public static final int RAW_DOCUMENT_INDEX = -100;
 
-  private Statement stmnt;
-  private MongoIterable<Document> findIterable;
-  private MongoCursor<Document> findIterator;
   private Document currentDoc;
   private int rowNumber = 0;
   private boolean isClosed;
   private SQLWarning warning;
-  private MongodbResultSetMetaData rsMetadata;
+  private final MongodbResultSetMetaData rsMetadata;
 
-  public MongodbResultSet(Statement stmnt, MongoIterable<Document> findIterable) throws SQLException {
-    this.stmnt = stmnt;
-    this.findIterable = findIterable;
-    this.findIterator = this.findIterable.iterator();
-    this.isClosed = false;
-    this.buildMetadata();
-  }
-
-  private void buildMetadata() throws SQLException {
-    this.rsMetadata = new MongodbResultSetMetaData(this.stmnt.getConnection().unwrap(MongodbConnection.class).getCollectionName());
-
-    this.findIterable.forEach((Block<? super Document>) doc -> {
-      for (Entry<String, BsonValue> docEntry : doc.toBsonDocument(doc.getClass(), MongoClient.getDefaultCodecRegistry()).entrySet()) {
-        if(!docEntry.getKey().equalsIgnoreCase("_id")) {
-          this.rsMetadata.addColumn(docEntry.getKey(), docEntry.getValue().getBsonType());
-        }
-      }
-    });
+  public SingleMongodbResultSet(String collection, String column, Document document, BsonType type) {
+    this.rsMetadata = new MongodbResultSetMetaData(collection);
+    this.rsMetadata.addColumn(column, type);
+    this.currentDoc = document;
   }
 
   @SuppressWarnings("unchecked")
@@ -104,18 +74,11 @@ public class MongodbResultSet implements ResultSet {
 
   @Override
   public boolean next() throws SQLException {
-    boolean hasNext = this.findIterator.hasNext();
-    if (hasNext) {
-      this.currentDoc = this.findIterator.next();
-      log.debug("Get document :" + this.currentDoc.toJson(new JsonWriterSettings(true)));
-      this.rowNumber++;
-    }
-    return hasNext;
+    return false;
   }
 
   @Override
   public void close() throws SQLException {
-    this.findIterator.close();
     this.isClosed = true;
   }
 
@@ -385,7 +348,7 @@ public class MongodbResultSet implements ResultSet {
 
   @Override
   public boolean isLast() throws SQLException {
-    return this.findIterator.hasNext();
+    return true;
   }
 
   @Override
@@ -703,7 +666,7 @@ public class MongodbResultSet implements ResultSet {
 
   @Override
   public Statement getStatement() throws SQLException {
-    return this.stmnt;
+    return null;
   }
 
   @Override
@@ -758,7 +721,8 @@ public class MongodbResultSet implements ResultSet {
   @Override
   public Array getArray(String columnLabel) throws SQLException {
     if(this.currentDoc.containsKey(columnLabel)) {
-      return this.stmnt.getConnection().createArrayOf("Document", ((List<Document>)this.currentDoc.get(columnLabel)).toArray());
+      log.info(this.currentDoc.get(columnLabel).toString());
+
     }
     return null;
   }

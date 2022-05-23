@@ -40,6 +40,8 @@ import java.util.Map;
 import java.util.Properties;
 import java.util.concurrent.Executor;
 
+import java.util.stream.Collectors;
+import lombok.extern.slf4j.Slf4j;
 import org.bson.BsonDocument;
 import org.bson.BsonInt32;
 import org.bson.Document;
@@ -52,6 +54,7 @@ import com.mongodb.MongoClientURI;
 import com.mongodb.client.MongoCollection;
 import com.mongodb.client.MongoDatabase;
 
+@Slf4j
 public class MongodbConnection implements Connection {
 	
 	private static final Logger LOG = LoggerFactory.getLogger(MongodbConnection.class);
@@ -382,7 +385,7 @@ public class MongodbConnection implements Connection {
 	
 	@Override
 	public Array createArrayOf(String typeName, Object[] elements) throws SQLException {
-		throw new SQLFeatureNotSupportedException();
+		return new MongodbArray(Arrays.stream(elements).map(e -> (Document)e).collect(Collectors.toList()));
 	}
 	
 	@Override

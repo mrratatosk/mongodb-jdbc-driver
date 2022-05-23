@@ -15,7 +15,10 @@
  */
 package io.dirigible.mongodb.jdbc;
 
+import com.mongodb.Block;
+import com.mongodb.Function;
 import com.mongodb.client.AggregateIterable;
+import com.mongodb.client.MongoCursor;
 import com.mongodb.client.MongoIterable;
 import java.sql.Connection;
 import java.sql.ResultSet;
@@ -24,9 +27,12 @@ import java.sql.SQLFeatureNotSupportedException;
 import java.sql.SQLWarning;
 import java.sql.Statement;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.stream.Collectors;
+import lombok.extern.slf4j.Slf4j;
 import org.bson.BsonDocument;
+import org.bson.BsonType;
 import org.bson.BsonValue;
 import org.bson.Document;
 
@@ -34,6 +40,7 @@ import com.mongodb.client.FindIterable;
 import com.mongodb.client.MongoDatabase;
 import org.bson.conversions.Bson;
 
+@Slf4j
 public class MongodbStatement implements Statement {
 	
 	protected MongodbConnection conn;
@@ -63,11 +70,23 @@ public class MongodbStatement implements Statement {
 	@Override
 	public ResultSet executeQuery(String sql) throws SQLException {
 		MongoDatabase db = this.conn.getMongoDb();
+
 		BsonDocument query = null;
-		if(sql==null || sql.length()<1)//that is a call to find() in terms of mongodb queries
+
+		if(sql.startsWith("SELECT count(*)")) {
+			String countStmt = sql.substring(sql.indexOf("{"), sql.lastIndexOf("}") + 1);
+			BsonDocument countQuery = BsonDocument.parse(countStmt);
+			long countValue = db.getCollection(countQuery.getString("find").getValue()).count(countQuery.getDocument("filter"));
+			log.info(String.valueOf(countValue));
+			Document doc = new Document("COUNT", countValue);
+			return new SingleMongodbResultSet(countQuery.getString("find").getValue(), "COUNT", doc, BsonType.INT64);
+		}
+
+		if(sql==null || sql.length()<1) {
 			query = new BsonDocument();
-		else
+		} else {
 			query = BsonDocument.parse(sql);
+		}
 
 		if((query.containsKey("filter") && query.containsKey("aggreg")) || (!query.containsKey("filter") && !query.containsKey("aggreg"))) {
 			throw new IllegalArgumentException("Specify either a find or an aggreg field");
